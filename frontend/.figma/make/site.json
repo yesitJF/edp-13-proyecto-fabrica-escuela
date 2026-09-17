@@ -1,0 +1,11 @@
+{
+  "title": "Interfaces del banco",
+  "description": "This web application enables bank managers to efficiently register new clients by collecting personal data, verifying identity, and ensuring unique identifiers.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
