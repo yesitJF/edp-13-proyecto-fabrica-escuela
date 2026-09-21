@@ -23,6 +23,8 @@ type CuentaResponse = {
   numero?: string;
   accountNumber?: string;
   message?: string;
+  error?: string;
+  errors?: Record<string, string>;
 };
 
 const API_CUENTAS_URL = "http://localhost:8080/api/cuentas";
@@ -96,17 +98,13 @@ export default function ClientView() {
         },
         body: JSON.stringify({
           idCliente: CLIENTE_ACTIVO.id,
-          tipo: tipoCuenta,
+          tipoCuenta: tipoCuenta.toUpperCase(),
           saldoInicial: 0,
         }),
+      });
 
-      const contentType = response.headers.get("content-type") ?? "";
       const responseText = await response.text();
-
-      let data: CuentaResponse & {
-        error?: string;
-        errors?: Record<string, string>;
-      } = {};
+      let data: CuentaResponse = {};
 
       try {
         data = responseText ? JSON.parse(responseText) : {};
