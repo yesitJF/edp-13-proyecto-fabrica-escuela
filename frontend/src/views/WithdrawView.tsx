@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoChevron, IcoAlert, IcoInfo } from "../shared/icons";
 import { fmtCOP, fmtFecha, generarRef } from "../shared/helpers";
-import { CLIENTE_ACTIVO, HISTORIAL_INICIAL, CANALES_RETIRO } from "../shared/data";
+import { HISTORIAL_INICIAL, CANALES_RETIRO } from "../shared/data";
+import { getAccount, getAccountsByClient, getActiveClient, getStoredAccounts, storeAccount, toCuenta, withdraw } from "../shared/api";
 import type { Cuenta, Transaccion } from "../shared/types";
 
 const CLIENT_NAV = [
@@ -46,12 +47,16 @@ function Stepper({ step }: { step: WdStep }) {
 }
 
 export default function WithdrawView() {
+  const activeClient = getActiveClient();
   const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
+  const [cuentas, setCuentas] = useState<Cuenta[]>(() => {
+    const stored = getStoredAccounts();
+    return stored.map(toCuenta);
+  });
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<WdStep>("form");
 
-  const [cuentaNum, setCuentaNum] = useState(cuentas[0].numero);
+  const [cuentaNum, setCuentaNum] = useState(cuentas[0]?.numero ?? "");
   const [montoStr, setMontoStr] = useState("");
   const [canal, setCanal] = useState("cajero");
   const [concepto, setConcepto] = useState("");
@@ -59,8 +64,18 @@ export default function WithdrawView() {
   const [referencia, setReferencia] = useState("");
   const [codigoRetiro, setCodigoRetiro] = useState("");
 
-  const cuenta = cuentas.find((c) => c.numero === cuentaNum)!;
+  const cuenta = cuentas.find((c) => c.numero === cuentaNum) ?? { numero: "", tipo: "", saldo: 0 };
   const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
+
+  useEffect(() => {
+    if (!activeClient) return;
+    getAccountsByClient(activeClient.id).then((accounts) => {
+      accounts.forEach(storeAccount);
+      const next = accounts.map(toCuenta);
+      setCuentas(next);
+      if (!cuentaNum && next[0]) setCuentaNum(next[0].numero);
+    }).catch((err) => setFieldErrors({ cuenta: err instanceof Error ? err.message : "No fue posible cargar las cuentas." }));
+  }, [activeClient?.id, cuentaNum]);
 
   function formatMonto(val: string) {
     const digits = val.replace(/\D/g, "");
@@ -87,20 +102,20 @@ export default function WithdrawView() {
     setStep("confirm");
   }
 
-  function handleConfirm() {
-    const nuevaTx: Transaccion = {
-      id: "tx-" + Date.now(),
-      fecha: new Date().toISOString(),
-      tipo: "enviada",
-      descripcion: `Retiro ${CANALES_RETIRO.find((c) => c.id === canal)?.label ?? canal}${concepto ? ` · ${concepto}` : ""}`,
-      monto,
-      cuentaOrigen: cuentaNum,
-      cuentaDestino: "EFECTIVO",
-      referencia,
-    };
-    setCuentas((prev) => prev.map((c) => c.numero === cuentaNum ? { ...c, saldo: c.saldo - monto } : c));
-    setHistorial((prev) => [nuevaTx, ...prev]);
-    setStep("success");
+  async function handleConfirm() {
+    try {
+      const response = await withdraw(cuentaNum, monto);
+      const account = await getAccount(cuentaNum);
+      storeAccount(account);
+      const nuevaTx: Transaccion = { id: String(response.id), fecha: response.fecha, tipo: "enviada", descripcion: response.descripcion || "Retiro", monto: response.monto, cuentaOrigen: response.cuentaOrigen, cuentaDestino: response.cuentaDestino, referencia: response.referencia };
+      setCuentas((prev) => prev.map((c) => c.numero === cuentaNum ? { ...c, saldo: c.saldo - monto } : c));
+      setHistorial((prev) => [nuevaTx, ...prev]);
+      setReferencia(response.referencia);
+      setStep("success");
+    } catch (err) {
+      setFieldErrors({ monto: err instanceof Error ? err.message : "No fue posible registrar el retiro." });
+      setStep("form");
+    }
   }
 
   function handleReset() {
@@ -113,7 +128,7 @@ export default function WithdrawView() {
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
+      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={activeClient?.nombre ?? "Cliente no registrado"} userSub={activeClient ? `CC ${activeClient.cedula}` : "Registra un cliente"} userInitials={activeClient?.iniciales ?? "?"} badge="Banca Personal" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -283,7 +298,7 @@ export default function WithdrawView() {
                     </div>
                     <div className="px-6 py-5 flex flex-col gap-3" style={{ background: "#130d24" }}>
                       {[
-                        { label: "Titular", value: CLIENTE_ACTIVO.nombre },
+                        { label: "Titular", value: activeClient?.nombre ?? "—" },
                         { label: "Cuenta debitada", value: `${cuenta.tipo} · ${cuentaNum}` },
                         { label: "Canal de retiro", value: CANALES_RETIRO.find((c) => c.id === canal)?.label ?? canal },
                         { label: "Monto", value: fmtCOP(monto), highlight: true },

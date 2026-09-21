@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoChevron, IcoAlert, IcoInfo, IcoShield } from "../shared/icons";
 import { fmtCOP, fmtFecha, generarRef } from "../shared/helpers";
-import { CLIENTE_ACTIVO, CUENTAS_SISTEMA, HISTORIAL_INICIAL, CANALES_CONSIGNACION } from "../shared/data";
+import { HISTORIAL_INICIAL, CANALES_CONSIGNACION } from "../shared/data";
+import { deposit, getAccount, getAccountsByClient, getActiveClient, getStoredAccounts, storeAccount, toCuenta } from "../shared/api";
 import type { Cuenta, Transaccion } from "../shared/types";
 
 const CLIENT_NAV = [
@@ -45,22 +46,26 @@ function Stepper({ step }: { step: DpStep }) {
   );
 }
 
-function buscarCuentaDeposito(num: string, cuentas: Cuenta[]): { nombre: string; tipo: string; activa: boolean } | null {
+function buscarCuentaDeposito(num: string, cuentas: Cuenta[], nombreCliente: string): { nombre: string; tipo: string; activa: boolean } | null {
   const propia = cuentas.find((c) => c.numero === num);
-  if (propia) return { nombre: CLIENTE_ACTIVO.nombre, tipo: propia.tipo, activa: true };
-  return CUENTAS_SISTEMA[num] ?? null;
+  if (propia) return { nombre: nombreCliente, tipo: propia.tipo, activa: true };
+  return null;
 }
 
 export default function DepositView() {
+  const activeClient = getActiveClient();
   const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
+  const [cuentas, setCuentas] = useState<Cuenta[]>(() => {
+    const stored = getStoredAccounts();
+    return stored.map(toCuenta);
+  });
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<DpStep>("form");
 
-  const [cuentaDestinoNum, setCuentaDestinoNum] = useState(cuentas[0].numero);
+  const [cuentaDestinoNum, setCuentaDestinoNum] = useState(cuentas[0]?.numero ?? "");
   const [destinoManual, setDestinoManual] = useState(false);
-  const [destinoInput, setDestinoInput] = useState(cuentas[0].numero);
-  const [destinoStatus, setDestinoStatus] = useState<"idle" | "checking" | "ok" | "inactive" | "notfound">("ok");
+  const [destinoInput, setDestinoInput] = useState(cuentas[0]?.numero ?? "");
+  const [destinoStatus, setDestinoStatus] = useState<"idle" | "checking" | "ok" | "inactive" | "notfound">("idle");
   const [canal, setCanal] = useState("efectivo");
   const [montoStr, setMontoStr] = useState("");
   const [concepto, setConcepto] = useState("");
@@ -69,8 +74,22 @@ export default function DepositView() {
   const [referencia, setReferencia] = useState("");
 
   const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
-  const destinoInfo = buscarCuentaDeposito(cuentaDestinoNum, cuentas);
+  const destinoInfo = buscarCuentaDeposito(cuentaDestinoNum, cuentas, activeClient?.nombre ?? "Cliente");
   const cuentaPropia = cuentas.find((c) => c.numero === cuentaDestinoNum);
+
+  useEffect(() => {
+    if (!activeClient) return;
+    getAccountsByClient(activeClient.id).then((accounts) => {
+      accounts.forEach(storeAccount);
+      const next = accounts.map(toCuenta);
+      setCuentas(next);
+      if (!cuentaDestinoNum && next[0]) {
+        setCuentaDestinoNum(next[0].numero);
+        setDestinoInput(next[0].numero);
+        setDestinoStatus("ok");
+      }
+    }).catch((err) => setFieldErrors({ destino: err instanceof Error ? err.message : "No fue posible cargar las cuentas." }));
+  }, [activeClient?.id, cuentaDestinoNum]);
 
   function formatMonto(val: string) {
     const digits = val.replace(/\D/g, "");
@@ -81,12 +100,10 @@ export default function DepositView() {
     if (!destinoInput.trim()) return;
     setCuentaDestinoNum(destinoInput.trim());
     setDestinoStatus("checking");
-    setTimeout(() => {
-      const info = buscarCuentaDeposito(destinoInput.trim(), cuentas);
-      if (!info) setDestinoStatus("notfound");
-      else if (!info.activa) setDestinoStatus("inactive");
+    getAccount(destinoInput.trim()).then((account) => {
+      if (!account.activa) setDestinoStatus("inactive");
       else { setDestinoStatus("ok"); setCuentaDestinoNum(destinoInput.trim()); }
-    }, 650);
+    }).catch(() => setDestinoStatus("notfound"));
   }
 
   function handleSelectPropia(num: string) {
@@ -118,20 +135,20 @@ export default function DepositView() {
     setStep("confirm");
   }
 
-  function handleConfirm() {
-    const nuevaTx: Transaccion = {
-      id: "tx-" + Date.now(),
-      fecha: new Date().toISOString(),
-      tipo: "recibida",
-      descripcion: `Consignación${remitente ? ` de ${remitente}` : ""} · ${CANALES_CONSIGNACION.find((c) => c.id === canal)?.label ?? canal}`,
-      monto,
-      cuentaOrigen: remitente || "EXTERNO",
-      cuentaDestino: cuentaDestinoNum,
-      referencia,
-    };
-    setCuentas((prev) => prev.map((c) => c.numero === cuentaDestinoNum ? { ...c, saldo: c.saldo + monto } : c));
-    setHistorial((prev) => [nuevaTx, ...prev]);
-    setStep("success");
+  async function handleConfirm() {
+    try {
+      const response = await deposit(cuentaDestinoNum, monto, remitente);
+      const account = await getAccount(cuentaDestinoNum);
+      storeAccount(account);
+      const nuevaTx: Transaccion = { id: String(response.id), fecha: response.fecha, tipo: "recibida", descripcion: response.descripcion || "Consignación", monto: response.monto, cuentaOrigen: response.cuentaOrigen, cuentaDestino: response.cuentaDestino, referencia: response.referencia };
+      setCuentas((prev) => prev.map((c) => c.numero === cuentaDestinoNum ? { ...c, saldo: c.saldo + monto } : c));
+      setHistorial((prev) => [nuevaTx, ...prev]);
+      setReferencia(response.referencia);
+      setStep("success");
+    } catch (err) {
+      setFieldErrors({ destino: err instanceof Error ? err.message : "No fue posible registrar la consignación." });
+      setStep("form");
+    }
   }
 
   function handleReset() {
@@ -141,15 +158,15 @@ export default function DepositView() {
     setCanal("efectivo");
     setFieldErrors({});
     setDestinoManual(false);
-    setDestinoInput(cuentas[0].numero);
-    setCuentaDestinoNum(cuentas[0].numero);
-    setDestinoStatus("ok");
+    setDestinoInput(cuentas[0]?.numero ?? "");
+    setCuentaDestinoNum(cuentas[0]?.numero ?? "");
+    setDestinoStatus(cuentas[0] ? "ok" : "idle");
     setStep("form");
   }
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
+      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={activeClient?.nombre ?? "Cliente no registrado"} userSub={activeClient ? `CC ${activeClient.cedula}` : "Registra un cliente"} userInitials={activeClient?.iniciales ?? "?"} badge="Banca Personal" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -185,7 +202,7 @@ export default function DepositView() {
                         <div className="w-1 h-4 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
                         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Cuenta destino</span>
                       </div>
-                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
+                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else if (cuentas[0]) { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
                         {destinoManual ? "← Mis cuentas" : "Otra cuenta"}
                       </button>
                     </div>
@@ -420,7 +437,7 @@ export default function DepositView() {
                         <div className="flex items-end justify-between">
                           <div>
                             <div className="text-xs opacity-60 mb-0.5">Titular</div>
-                            <div className="text-sm font-semibold" style={{ fontFamily: "Instrument Sans,sans-serif" }}>{CLIENTE_ACTIVO.nombre}</div>
+                            <div className="text-sm font-semibold" style={{ fontFamily: "Instrument Sans,sans-serif" }}>{activeClient?.nombre ?? "Cliente no registrado"}</div>
                           </div>
                           <div className="text-right">
                             <div className="text-xs opacity-60 mb-0.5">Saldo disponible</div>

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoChevron, IcoAlert, IcoInfo, IcoShield } from "../shared/icons";
-import { fmtCOP, fmtFecha, generarRef } from "../shared/helpers";
-import { CLIENTE_ACTIVO, CUENTAS_SISTEMA, HISTORIAL_INICIAL } from "../shared/data";
+import { fmtCOP, fmtFecha } from "../shared/helpers";
+import { HISTORIAL_INICIAL } from "../shared/data";
+import { getAccount, getAccountsByClient, getActiveClient, getStoredAccounts, storeAccount, toCuenta, transfer } from "../shared/api";
 import type { Cuenta, Transaccion } from "../shared/types";
 
 const CLIENT_NAV = [
@@ -46,12 +47,16 @@ function Stepper({ step }: { step: TxStep }) {
 }
 
 export default function TransferView() {
+  const activeClient = getActiveClient();
   const [activeNav, setActiveNav] = useState("transferencias");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
+  const [cuentas, setCuentas] = useState<Cuenta[]>(() => {
+    const stored = getStoredAccounts();
+    return stored.map(toCuenta);
+  });
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<TxStep>("form");
 
-  const [cuentaOrigenNum, setCuentaOrigenNum] = useState(cuentas[0].numero);
+  const [cuentaOrigenNum, setCuentaOrigenNum] = useState(cuentas[0]?.numero ?? "");
   const [cuentaDestinoNum, setCuentaDestinoNum] = useState("");
   const [montoStr, setMontoStr] = useState("");
   const [concepto, setConcepto] = useState("");
@@ -59,9 +64,19 @@ export default function TransferView() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [referencia, setReferencia] = useState("");
 
-  const cuentaOrigen = cuentas.find((c) => c.numero === cuentaOrigenNum)!;
+  const cuentaOrigen = cuentas.find((c) => c.numero === cuentaOrigenNum) ?? { numero: "", tipo: "", saldo: 0 };
   const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
-  const destinoInfo = CUENTAS_SISTEMA[cuentaDestinoNum];
+  const destinoInfo = destinoStatus === "ok" ? { nombre: "Cuenta verificada" } : null;
+
+  useEffect(() => {
+    if (!activeClient) return;
+    getAccountsByClient(activeClient.id).then((accounts) => {
+      accounts.forEach(storeAccount);
+      const next = accounts.map(toCuenta);
+      setCuentas(next);
+      if (!cuentaOrigenNum && next[0]) setCuentaOrigenNum(next[0].numero);
+    }).catch((err) => setFieldErrors({ origen: err instanceof Error ? err.message : "No fue posible cargar las cuentas." }));
+  }, [activeClient?.id, cuentaOrigenNum]);
 
   function formatMonto(val: string) {
     const digits = val.replace(/\D/g, "");
@@ -71,12 +86,9 @@ export default function TransferView() {
   function handleDestinoBlur() {
     if (!cuentaDestinoNum.trim()) return;
     setDestinoStatus("checking");
-    setTimeout(() => {
-      const info = CUENTAS_SISTEMA[cuentaDestinoNum.trim()];
-      if (!info) setDestinoStatus("notfound");
-      else if (!info.activa) setDestinoStatus("inactive");
-      else setDestinoStatus("ok");
-    }, 700);
+    getAccount(cuentaDestinoNum.trim()).then((account) => {
+      setDestinoStatus(account.activa ? "ok" : "inactive");
+    }).catch(() => setDestinoStatus("notfound"));
   }
 
   function validate(): Record<string, string> {
@@ -97,28 +109,28 @@ export default function TransferView() {
     const errs = validate();
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    setReferencia(generarRef());
+    setReferencia("Pendiente");
     setStep("confirm");
   }
 
-  function handleConfirm() {
-    const nuevaTx: Transaccion = {
-      id: "tx-" + Date.now(),
-      fecha: new Date().toISOString(),
-      tipo: "enviada",
-      descripcion: concepto || `Transferencia a ${destinoInfo?.nombre ?? cuentaDestinoNum}`,
-      monto,
-      cuentaOrigen: cuentaOrigenNum,
-      cuentaDestino: cuentaDestinoNum,
-      referencia,
-    };
-    setCuentas((prev) => prev.map((c) => {
+  async function handleConfirm() {
+    try {
+      const response = await transfer(cuentaOrigenNum, cuentaDestinoNum, monto, concepto);
+      const origen = await getAccount(cuentaOrigenNum);
+      storeAccount(origen);
+      const nuevaTx: Transaccion = { id: String(response.id), fecha: response.fecha, tipo: "enviada", descripcion: response.descripcion || concepto || "Transferencia", monto: response.monto, cuentaOrigen: response.cuentaOrigen, cuentaDestino: response.cuentaDestino, referencia: response.referencia };
+      setCuentas((prev) => prev.map((c) => {
       if (c.numero === cuentaOrigenNum) return { ...c, saldo: c.saldo - monto };
       if (c.numero === cuentaDestinoNum) return { ...c, saldo: c.saldo + monto };
       return c;
-    }));
-    setHistorial((prev) => [nuevaTx, ...prev]);
-    setStep("success");
+      }));
+      setHistorial((prev) => [nuevaTx, ...prev]);
+      setReferencia(response.referencia);
+      setStep("success");
+    } catch (err) {
+      setFieldErrors({ monto: err instanceof Error ? err.message : "No fue posible registrar la transferencia." });
+      setStep("form");
+    }
   }
 
   function handleReset() {
@@ -132,7 +144,7 @@ export default function TransferView() {
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
+      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={activeClient?.nombre ?? "Cliente no registrado"} userSub={activeClient ? `CC ${activeClient.cedula}` : "Registra un cliente"} userInitials={activeClient?.iniciales ?? "?"} badge="Banca Personal" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -302,7 +314,7 @@ export default function TransferView() {
                     <div className="px-6 py-5 flex flex-col gap-3" style={{ background: "#130d24" }}>
                       {[
                         { label: "Cuenta origen", value: `${cuentaOrigen?.tipo} · ${cuentaOrigenNum}` },
-                        { label: "Titular origen", value: CLIENTE_ACTIVO.nombre },
+                        { label: "Titular origen", value: activeClient?.nombre ?? "—" },
                         { label: "Cuenta destino", value: `${destinoInfo?.tipo} · ${cuentaDestinoNum}` },
                         { label: "Titular destino", value: destinoInfo?.nombre ?? cuentaDestinoNum },
                         { label: "Monto", value: fmtCOP(monto), highlight: true },

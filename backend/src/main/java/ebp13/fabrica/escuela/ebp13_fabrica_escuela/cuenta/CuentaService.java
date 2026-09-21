@@ -9,6 +9,7 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.exception.CuentaNoEncontradaException;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,6 +55,19 @@ public class CuentaService {
                 .orElseThrow(() -> new CuentaNoEncontradaException(
                         "No existe la cuenta con número " + numero));
         return toResponse(cuenta);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CuentaResponse> listarPorCliente(Long clienteId) {
+        if (!clienteRepository.existsById(clienteId)) {
+            throw new ClienteNoEncontradoException(
+                    "No existe el cliente con id " + clienteId);
+        }
+
+        return cuentaRepository.findByCliente_Id(clienteId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     private String generarNumeroCuenta(TipoCuenta tipo) {

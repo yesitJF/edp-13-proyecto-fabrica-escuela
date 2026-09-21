@@ -13,21 +13,10 @@ import {
   IcoShield,
   IcoStar,
 } from "../shared/icons";
-import { CLIENTE_ACTIVO } from "../shared/data";
+import { createAccount, getActiveClient, storeAccount } from "../shared/api";
 
 type TipoCuenta = "ahorros" | "corriente" | "";
 type ClientStep = "select" | "confirm" | "success";
-
-type CuentaResponse = {
-  numeroCuenta?: string;
-  numero?: string;
-  accountNumber?: string;
-  message?: string;
-  error?: string;
-  errors?: Record<string, string>;
-};
-
-const API_CUENTAS_URL = "http://localhost:8080/api/cuentas";
 
 const CLIENT_NAV = [
   { id: "inicio", label: "Inicio", icon: <IcoDash /> },
@@ -67,6 +56,7 @@ const CUENTA_INFO = {
 };
 
 export default function ClientView() {
+  const activeClient = getActiveClient();
   const [activeNav, setActiveNav] = useState("cuentas");
   const [step, setStep] = useState<ClientStep>("select");
   const [tipoCuenta, setTipoCuenta] = useState<TipoCuenta>("");
@@ -91,59 +81,13 @@ export default function ClientView() {
     setError("");
 
     try {
-      const response = await fetch(API_CUENTAS_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          idCliente: CLIENTE_ACTIVO.id,
-          tipoCuenta: tipoCuenta.toUpperCase(),
-          saldoInicial: 0,
-        }),
-      });
-
-      const responseText = await response.text();
-      let data: CuentaResponse = {};
-
-      try {
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        data = { message: responseText };
-      }
-
-      if (!response.ok) {
-        const detalles =
-          data.message ||
-          data.error ||
-          (data.errors ? JSON.stringify(data.errors) : "") ||
-          `El backend rechazó la solicitud (${response.status}).`;
-
-        throw new Error(detalles);
-      }
-
-      const numero = data.numeroCuenta ?? data.numero ?? data.accountNumber;
-
-      if (!numero) {
-        throw new Error(
-          "El backend creó la cuenta, pero no devolvió el número de cuenta.",
-        );
-      }
-
-      setNumeroCuenta(numero);
+      if (!activeClient) throw new Error("Registra primero un cliente desde la vista de Gestor.");
+      const account = await createAccount(activeClient.id, tipoCuenta.toUpperCase() as "AHORROS" | "CORRIENTE");
+      storeAccount(account);
+      setNumeroCuenta(account.numeroCuenta);
       setStep("success");
     } catch (err) {
-      if (err instanceof TypeError) {
-        setError(
-          "No fue posible conectar con el backend. Verifica que esté ejecutándose en el puerto 8080 y que CORS esté habilitado.",
-        );
-      } else {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No fue posible abrir la cuenta.",
-        );
-      }
+      setError(err instanceof Error ? err.message : "No fue posible abrir la cuenta.");
     } finally {
       setGuardando(false);
     }
@@ -170,9 +114,9 @@ export default function ClientView() {
         navItems={CLIENT_NAV}
         activeNav={activeNav}
         onNav={setActiveNav}
-        userLabel={CLIENTE_ACTIVO.nombre}
-        userSub={`CC ${CLIENTE_ACTIVO.cedula}`}
-        userInitials={CLIENTE_ACTIVO.iniciales}
+        userLabel={activeClient?.nombre ?? "Cliente no registrado"}
+        userSub={activeClient ? `CC ${activeClient.cedula}` : "Registra un cliente"}
+        userInitials={activeClient?.iniciales ?? "?"}
         badge="Banca Personal"
       />
 
@@ -307,14 +251,14 @@ export default function ClientView() {
                     fontFamily: "Instrument Sans,sans-serif",
                   }}
                 >
-                  {CLIENTE_ACTIVO.iniciales}
+                  {activeClient?.iniciales ?? "?"}
                 </div>
                 <div className="flex-1">
                   <div className="text-sm font-semibold" style={{ color: "#f1eeff" }}>
-                    {CLIENTE_ACTIVO.nombre}
+                    {activeClient?.nombre ?? "Cliente no registrado"}
                   </div>
                   <div className="text-xs" style={{ color: "#7c6fa0" }}>
-                    CC {CLIENTE_ACTIVO.cedula} · {CLIENTE_ACTIVO.email}
+                    CC {activeClient?.cedula ?? "—"} · {activeClient?.email ?? "—"}
                   </div>
                 </div>
                 <div
@@ -335,7 +279,7 @@ export default function ClientView() {
                     border: "1px solid rgba(139,92,246,0.2)",
                   }}
                 >
-                  ID: {CLIENTE_ACTIVO.id}
+                  ID: {activeClient?.id ?? "—"}
                 </div>
               </div>
 
@@ -481,8 +425,8 @@ export default function ClientView() {
                 </div>
                 <div className="px-6 py-5" style={{ background: "#130d24" }}>
                   {[
-                    { label: "Titular", value: CLIENTE_ACTIVO.nombre },
-                    { label: "ID de cliente", value: CLIENTE_ACTIVO.id },
+                    { label: "Titular", value: activeClient?.nombre ?? "—" },
+                    { label: "ID de cliente", value: activeClient?.id ?? "—" },
                     { label: "Tipo de cuenta", value: info.titulo },
                     { label: "Número de cuenta", value: "Se generará al confirmar", muted: true },
                     { label: "Saldo inicial", value: "$0,00 COP", highlight: true },
@@ -560,7 +504,7 @@ export default function ClientView() {
                   <div className="text-lg font-bold tracking-widest mb-1" style={{ letterSpacing: "0.08em" }}>{numeroCuenta}</div>
                   <div className="text-xs opacity-60 mb-6">Número de cuenta</div>
                   <div className="flex items-end justify-between">
-                    <div><div className="text-xs opacity-60 mb-0.5">Titular</div><div className="text-sm font-semibold">{CLIENTE_ACTIVO.nombre}</div></div>
+                    <div><div className="text-xs opacity-60 mb-0.5">Titular</div><div className="text-sm font-semibold">{activeClient?.nombre ?? "—"}</div></div>
                     <div className="text-right"><div className="text-xs opacity-60 mb-0.5">Saldo disponible</div><div className="text-lg font-bold">$0</div></div>
                   </div>
                 </div>
