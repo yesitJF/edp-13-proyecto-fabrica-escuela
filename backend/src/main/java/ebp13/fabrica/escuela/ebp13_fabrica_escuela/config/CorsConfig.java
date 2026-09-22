@@ -14,8 +14,7 @@ public class CorsConfig implements WebMvcConfigurer {
                         "http://localhost:5173",
                         "http://localhost:8443",
                         "http://localhost:4173",
-                        "https://proyecto-fabrica-escuela-yesitjf.vercel.app",
-                        "https://proyecto-fabrica-escuela-yesitjf-jiiu08ni-yesitjf.vercel.app"
+                        "https://proyecto-fabrica-escuela-yesitjf.vercel.app"
                 )
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
