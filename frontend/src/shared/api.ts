@@ -3,6 +3,7 @@ import type { ManagerFormData } from "./types";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "https://edp-13-proyecto-fabrica-escuela.onrender.com").replace(/\/$/, "");
 const ACTIVE_CLIENT_KEY = "banco-x-cliente-activo";
 const ACCOUNTS_KEY = "banco-x-cuentas";
+const AUTH_TOKEN_KEY = "banco-x-auth-token";
 
 export type ApiClient = {
   id: number;
@@ -25,15 +26,35 @@ export type ApiAccount = {
   idCliente: string;
 };
 
+export type ApiCard = {
+  id: number;
+  ultimosCuatroDigitos: string;
+  tipo: "DEBITO" | "CREDITO";
+  estado: string;
+  cuentaId: number;
+  cupo?: number;
+  cupoDisponible?: number;
+  fechaCreacion?: string;
+};
+
 export type ApiTransaction = {
   id: number;
   referencia: string;
   tipo: "TRANSFERENCIA" | "RETIRO" | "CONSIGNACION";
+  direccion?: "enviada" | "recibida";
   monto: number;
   cuentaOrigen: string;
   cuentaDestino: string;
   fecha: string;
   descripcion?: string;
+  estado?: string;
+};
+
+export type LoginResponse = {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  role: string;
 };
 
 export type ActiveClient = ApiClient & {
@@ -41,14 +62,41 @@ export type ActiveClient = ApiClient & {
   iniciales: string;
 };
 
-type ApiError = { error?: string; mensaje?: string };
+type ApiError = { error?: string; mensaje?: string; message?: string };
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const headers = new Headers(init?.headers ?? {});
+  const token = getAuthToken();
+
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  if (!headers.has("Content-Type") && init?.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers,
     });
   } catch {
     throw new Error("No fue posible conectar con el backend. Verifica la URL configurada y CORS.");
@@ -65,9 +113,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     const error = data as ApiError;
-    throw new Error(error.mensaje || error.error || `El backend rechazó la solicitud (${response.status}).`);
+    throw new Error(error.mensaje || error.message || error.error || `El backend rechazó la solicitud (${response.status}).`);
   }
   return data as T;
+}
+
+export async function login(username: string, password: string) {
+  const response = await request<LoginResponse>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+
+  setAuthToken(response.accessToken);
+  return response;
 }
 
 export function createClient(form: ManagerFormData) {
@@ -88,6 +146,10 @@ export function createClient(form: ManagerFormData) {
   });
 }
 
+export function getClientByIdentifier(identifier: string) {
+  return request<ApiClient>(`/api/clientes/${encodeURIComponent(identifier)}`);
+}
+
 export function createAccount(clienteId: number, tipo: "AHORROS" | "CORRIENTE") {
   return request<ApiAccount>("/api/cuentas", {
     method: "POST",
@@ -97,6 +159,10 @@ export function createAccount(clienteId: number, tipo: "AHORROS" | "CORRIENTE") 
 
 export function getAccount(numero: string) {
   return request<ApiAccount>(`/api/cuentas/${encodeURIComponent(numero)}`);
+}
+
+export function getAccounts() {
+  return request<ApiAccount[]>("/api/cuentas");
 }
 
 export function getAccountsByClient(clienteId: number) {
@@ -122,6 +188,31 @@ export function deposit(cuentaDestino: string, monto: number, remitente: string)
     method: "POST",
     body: JSON.stringify({ cuentaDestino, monto, remitente: remitente || null }),
   });
+}
+
+export function createDebitCard(cuentaId: number) {
+  return request<ApiCard>("/api/tarjetas/debito", {
+    method: "POST",
+    body: JSON.stringify({ cuentaId }),
+  });
+}
+
+export function createCreditCard() {
+  return request<ApiCard>("/api/tarjetas/credito", {
+    method: "POST",
+  });
+}
+
+export function getAccountHistory(numeroCuenta: string, desde?: string, hasta?: string) {
+  const params = new URLSearchParams();
+  if (desde) params.set("desde", desde);
+  if (hasta) params.set("hasta", hasta);
+  const query = params.toString();
+  return request<ApiTransaction[]>(`/api/transacciones/cuentas/${encodeURIComponent(numeroCuenta)}/historial${query ? `?${query}` : ""}`);
+}
+
+export function getTransactionDetail(identifier: string | number, numeroCuenta: string) {
+  return request<ApiTransaction>(`/api/transacciones/${encodeURIComponent(String(identifier))}?cuenta=${encodeURIComponent(numeroCuenta)}`);
 }
 
 export function getStoredClient(): ApiClient | null {

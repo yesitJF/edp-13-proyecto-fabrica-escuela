@@ -3,6 +3,8 @@ package ebp13.fabrica.escuela.ebp13_fabrica_escuela.transaccion;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.Cuenta;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.CuentaRepository;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.exception.CuentaNoEncontradaException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.Usuario;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.UsuarioRepository;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.CuentaInactivaException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.SaldoInsuficienteException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.transaccion.dto.TransaccionResponse;
@@ -19,12 +21,15 @@ public class TransaccionService {
 
     private final CuentaRepository cuentaRepository;
     private final TransaccionRepository transaccionRepository;
+    private final UsuarioRepository usuarioRepository;
 
     public TransaccionService(
             CuentaRepository cuentaRepository,
-            TransaccionRepository transaccionRepository) {
+            TransaccionRepository transaccionRepository,
+            UsuarioRepository usuarioRepository) {
         this.cuentaRepository = cuentaRepository;
         this.transaccionRepository = transaccionRepository;
+        this.usuarioRepository = usuarioRepository;
     }
 
     @Transactional
@@ -32,13 +37,16 @@ public class TransaccionService {
             String cuentaOrigenNum,
             String cuentaDestinoNum,
             BigDecimal monto,
-            String concepto) {
+            String concepto,
+            String username) {
         validarMonto(monto);
-            if (Objects.equals(cuentaOrigenNum, cuentaDestinoNum)) {
+        if (Objects.equals(cuentaOrigenNum, cuentaDestinoNum)) {
             throw new IllegalArgumentException("Las cuentas de origen y destino deben ser distintas");
         }
 
         Cuenta origen = buscarCuenta(cuentaOrigenNum);
+        validarPropiedad(origen, username);
+        validarCuentaActiva(origen);
         Cuenta destino = buscarCuenta(cuentaDestinoNum);
         validarCuentaActiva(destino);
         validarSaldo(origen, monto);
@@ -57,9 +65,10 @@ public class TransaccionService {
     }
 
     @Transactional
-    public TransaccionResponse retirar(String numeroCuenta, BigDecimal monto) {
+    public TransaccionResponse retirar(String numeroCuenta, BigDecimal monto, String username) {
         validarMonto(monto);
         Cuenta cuenta = buscarCuenta(numeroCuenta);
+        validarPropiedad(cuenta, username);
         validarCuentaActiva(cuenta);
         validarSaldo(cuenta, monto);
 
@@ -78,9 +87,11 @@ public class TransaccionService {
     public TransaccionResponse consignar(
             String cuentaDestinoNum,
             BigDecimal monto,
-            String remitente) {
+            String remitente,
+            String username) {
         validarMonto(monto);
         Cuenta destino = buscarCuenta(cuentaDestinoNum);
+        validarPropiedad(destino, username);
         validarCuentaActiva(destino);
 
         destino.setSaldo(destino.getSaldo().add(monto));
@@ -104,6 +115,14 @@ public class TransaccionService {
         if (!cuenta.isActiva()) {
             throw new CuentaInactivaException(
                     "La cuenta " + cuenta.getNumeroCuenta() + " está inactiva");
+        }
+    }
+
+    private void validarPropiedad(Cuenta cuenta, String username) {
+        Usuario user = usuarioRepository.findByUsernameIgnoreCase(username)
+                .orElseThrow(() -> new CuentaNoEncontradaException("Cuenta no encontrada"));
+        if (user.getCliente() == null || !user.getCliente().getId().equals(cuenta.getCliente().getId())) {
+            throw new CuentaNoEncontradaException("Cuenta no encontrada");
         }
     }
 

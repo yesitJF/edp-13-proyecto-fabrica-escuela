@@ -28,6 +28,10 @@ public class Transaccion {
     @Column(nullable = false)
     private TipoTransaccion tipo;
 
+    @Enumerated(EnumType.STRING)
+    @Column
+    private EstadoTransaccion estado = EstadoTransaccion.EXITOSA;
+
     @Column(nullable = false)
     private BigDecimal monto;
 
@@ -50,6 +54,9 @@ public class Transaccion {
         if (fecha == null) {
             fecha = LocalDateTime.now();
         }
+        if (estado == null) {
+            estado = EstadoTransaccion.EXITOSA;
+        }
     }
 
     public Long getId() {
@@ -66,6 +73,14 @@ public class Transaccion {
 
     public TipoTransaccion getTipo() {
         return tipo;
+    }
+
+    public EstadoTransaccion getEstado() {
+        return estado;
+    }
+
+    public void setEstado(EstadoTransaccion estado) {
+        this.estado = estado;
     }
 
     public void setTipo(TipoTransaccion tipo) {

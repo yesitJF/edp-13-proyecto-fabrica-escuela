@@ -1,10 +1,16 @@
 package ebp13.fabrica.escuela.ebp13_fabrica_escuela.transaccion.dto;
 
 import java.math.BigDecimal;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 public class ConsignacionRequest {
 
+    @NotBlank(message = "La cuenta destino es obligatoria")
     private String cuentaDestino;
+    @NotNull(message = "El monto es obligatorio")
+    @Positive(message = "El monto debe ser mayor que cero")
     private BigDecimal monto;
     private String remitente;
 

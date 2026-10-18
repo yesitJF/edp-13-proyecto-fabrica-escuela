@@ -12,10 +12,7 @@ import jakarta.validation.constraints.Size;
 public class ClienteRequest {
 
     @NotBlank(message = "La cédula es obligatoria")
-    @Pattern(
-            regexp = "^[0-9]{6,15}$",
-            message = "La cédula debe tener entre 6 y 15 dígitos"
-    )
+    @Pattern(regexp = "^[0-9]{6,10}$", message = "La cédula debe tener entre 6 y 10 dígitos")
     private String cedula;
 
     @NotBlank(message = "El primer nombre es obligatorio")
