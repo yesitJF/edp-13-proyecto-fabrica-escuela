@@ -1,12 +1,10 @@
-import { CEDULAS_EXISTENTES, CUENTAS_SISTEMA } from "./data";
+import { CUENTAS_SISTEMA } from "./data";
 
 export function validarCedula(cedula: string): { valid: boolean; error?: string } {
   const limpia = cedula.replace(/\D/g, "");
   if (!limpia) return { valid: false, error: "La cédula es requerida." };
   if (limpia.length < 6 || limpia.length > 10)
     return { valid: false, error: "La cédula debe tener entre 6 y 10 dígitos." };
-  if (CEDULAS_EXISTENTES.includes(limpia))
-    return { valid: false, error: "Ya existe un cliente registrado con esta cédula." };
   return { valid: true };
 }
 
