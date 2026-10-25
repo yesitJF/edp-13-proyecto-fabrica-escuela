@@ -96,6 +96,13 @@ public class CuentaService {
                 .map(this::toResponse).toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<CuentaResponse> listarPorCliente(Long clienteId) {
+        return cuentaRepository.findByCliente_Id(clienteId).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     private String generarNumeroCuenta(TipoCuenta tipo) {
         String prefijo;
         if (tipo == TipoCuenta.AHORROS) {
