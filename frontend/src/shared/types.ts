@@ -1,16 +1,14 @@
 export type Cuenta = { numero: string; tipo: string; saldo: number };
 
 export type Transaccion = {
-  id: number | string;
+  id: string;
   fecha: string;
   tipo: "enviada" | "recibida";
-  etiqueta: string;
   descripcion: string;
   monto: number;
   cuentaOrigen: string;
   cuentaDestino: string;
   referencia: string;
-  estado?: string;
 };
 
 export type ManagerFormData = {
