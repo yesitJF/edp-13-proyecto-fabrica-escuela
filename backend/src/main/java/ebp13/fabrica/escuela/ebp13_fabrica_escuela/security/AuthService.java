@@ -133,12 +133,13 @@ public class AuthService {
         if (username == null || username.isBlank() || password == null || password.isBlank())
             return;
         validateUsername(username);
-        if (usuarios.existsByUsernameIgnoreCase(username))
-            return;
-        Usuario manager = new Usuario();
+        Usuario manager = usuarios.findByUsernameIgnoreCase(username.trim()).orElseGet(Usuario::new);
         manager.setUsername(username.trim());
         manager.setPasswordHash(passwordEncoder.encode(password));
         manager.setRole(UserRole.GESTOR);
+        manager.setFailedLoginAttempts(0);
+        manager.setLockedUntil(null);
+        manager.setActive(true);
         usuarios.save(manager);
     }
 
