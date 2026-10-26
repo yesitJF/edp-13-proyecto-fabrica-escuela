@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import Sidebar from "../shared/Sidebar";
 import {
   changeCredentials, createAccount, createClient, createCreditCard, createDebitCard,
-  deposit, getAccount, getAccountHistory, getClientByIdentifier, getMe,
+  deposit, getAccount, getAccounts, getAccountHistory, getClientByIdentifier, getMe,
   getStoredClient, getTransactionDetail, login, logout, storeClient, transfer, withdraw,
   type ApiAccount, type ApiCard, type ApiClient, type ApiTransaction,
 } from "../shared/api";
