@@ -4,23 +4,35 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaDuplicadaException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaInvalidaException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.Usuario;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.UsuarioRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.UserRole;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.ResourceNotFoundException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.ResourceConflictException;
 import java.security.SecureRandom;
 import java.util.List;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ClienteService {
 
-    private static final String RANDOM_CHARACTERS =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static final String RANDOM_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ClienteRepository clienteRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public ClienteService(ClienteRepository clienteRepository) {
+    public ClienteService(
+            ClienteRepository clienteRepository,
+            UsuarioRepository usuarioRepository,
+            PasswordEncoder passwordEncoder) {
         this.clienteRepository = clienteRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
@@ -29,8 +41,16 @@ public class ClienteService {
 
         if (clienteRepository.existsByCedula(request.getCedula())) {
             throw new CedulaDuplicadaException(
-                    "La cédula ya está registrada"
-            );
+                    "La cédula ya está registrada");
+        }
+        if (request.getEmail() != null && clienteRepository.existsByEmail(request.getEmail())) {
+            throw new ResourceConflictException("EMAIL_DUPLICADO", "El correo electrónico ya está registrado");
+        }
+        String username = request.getCedula().trim();
+        if (usuarioRepository.existsByUsernameIgnoreCase(username)) {
+            throw new ResourceConflictException(
+                    "USUARIO_DUPLICADO",
+                    "La cédula ya está asociada a un usuario");
         }
 
         Cliente cliente = new Cliente();
@@ -50,7 +70,15 @@ public class ClienteService {
         cliente.setDepartamento(request.getDepartamento());
         cliente.setActivo(true);
 
-        return toResponse(clienteRepository.save(cliente));
+        Cliente savedClient = clienteRepository.save(cliente);
+        Usuario user = new Usuario();
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(savedClient.getIdCliente()));
+        user.setRole(UserRole.CLIENTE);
+        user.setCliente(savedClient);
+        usuarioRepository.save(user);
+
+        return toResponse(savedClient);
     }
 
     @Transactional(readOnly = true)
@@ -61,11 +89,22 @@ public class ClienteService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public ClienteResponse consultar(String identifier) {
+        Cliente cliente = clienteRepository.findByCedula(identifier)
+                .or(() -> clienteRepository.findByIdCliente(identifier))
+                .or(() -> identifier.matches("\\d+")
+                        ? clienteRepository.findById(Long.valueOf(identifier))
+                        : java.util.Optional.empty())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "CLIENTE_NO_ENCONTRADO", "Cliente no encontrado"));
+        return toResponse(cliente);
+    }
+
     private void validarCedula(String cedula) {
         if (cedula == null || !cedula.matches("\\d{6,10}")) {
             throw new CedulaInvalidaException(
-                    "La cédula debe contener entre 6 y 10 dígitos"
-            );
+                    "La cédula debe contener entre 6 y 10 dígitos");
         }
     }
 
@@ -88,9 +127,7 @@ public class ClienteService {
         for (int i = 0; i < 3; i++) {
             sufijo.append(
                     RANDOM_CHARACTERS.charAt(
-                            RANDOM.nextInt(RANDOM_CHARACTERS.length())
-                    )
-            );
+                            RANDOM.nextInt(RANDOM_CHARACTERS.length())));
         }
 
         return sufijo.toString();

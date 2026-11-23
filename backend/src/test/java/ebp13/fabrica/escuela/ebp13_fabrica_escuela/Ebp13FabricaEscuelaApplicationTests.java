@@ -2,8 +2,10 @@ package ebp13.fabrica.escuela.ebp13_fabrica_escuela;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
+@ActiveProfiles("test")
 class Ebp13FabricaEscuelaApplicationTests {
 
 	@Test

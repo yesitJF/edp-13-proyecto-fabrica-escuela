@@ -1,3 +1,15 @@
+import { useLocation, useNavigate } from "react-router";
+import {
+  IcoCard,
+  IcoClientes,
+  IcoCuentas,
+  IcoDash,
+  IcoExtractos,
+  IcoLock,
+  IcoTransfer,
+  IcoUser,
+} from "./icons";
+
 type SidebarProps = {
   navItems: { id: string; label: string; icon: React.ReactNode }[];
   activeNav: string;
@@ -9,6 +21,30 @@ type SidebarProps = {
 };
 
 export default function Sidebar({ navItems, activeNav, onNav, userLabel, userSub, userInitials, badge }: SidebarProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const clientNav = [
+    { id: "inicio", label: "Inicio", icon: <IcoDash />, route: "/inicio" },
+    { id: "nueva-cuenta", label: "Abrir Cuenta", icon: <IcoCuentas />, route: "/cuentas/nueva" },
+    { id: "saldo", label: "Consultar Saldo", icon: <IcoCuentas />, route: "/cuentas/saldo" },
+    { id: "historial", label: "Historial", icon: <IcoExtractos />, route: "/cuentas/historial" },
+    { id: "tarjeta-debito", label: "Tarjeta Débito", icon: <IcoCard />, route: "/tarjetas/debito" },
+    { id: "tarjeta-credito", label: "Tarjeta Crédito", icon: <IcoCard />, route: "/tarjetas/credito" },
+    { id: "transferencias", label: "Transferir", icon: <IcoTransfer />, route: "/transferencias" },
+    { id: "retiros", label: "Retirar Dinero", icon: <IcoTransfer />, route: "/retiros" },
+    { id: "consignaciones", label: "Consignar Dinero", icon: <IcoTransfer />, route: "/consignaciones" },
+    { id: "seguridad", label: "Perfil y Seguridad", icon: <IcoLock />, route: "/perfil/seguridad" },
+  ];
+  const managerNav = [
+    { id: "consultar-clientes", label: "Consultar Clientes", icon: <IcoClientes />, route: "/gestor/clientes" },
+    { id: "registrar-cliente", label: "Registrar Cliente", icon: <IcoUser />, route: "/gestor/clientes/nuevo" },
+  ];
+  const routedItems = badge === "Banca Personal"
+    ? clientNav
+    : badge === "Plataforma Gestión"
+      ? managerNav
+      : navItems.map((item) => ({ ...item, route: undefined as string | undefined }));
+
   return (
     <aside className="flex flex-col w-60 shrink-0 overflow-y-auto" style={{ background: "#0d0820", borderRight: "1px solid rgba(139,92,246,0.12)" }}>
       <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: "1px solid rgba(139,92,246,0.1)" }}>
@@ -22,12 +58,15 @@ export default function Sidebar({ navItems, activeNav, onNav, userLabel, userSub
       </div>
 
       <nav className="flex flex-col gap-0.5 px-3 py-4 flex-1">
-        {navItems.map((item) => {
-          const active = activeNav === item.id;
+        {routedItems.map((item) => {
+          const active = item.route ? location.pathname === item.route : activeNav === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => onNav(item.id)}
+              onClick={() => {
+                onNav(item.id);
+                if (item.route) navigate(item.route);
+              }}
               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-left w-full transition-all duration-150"
               style={{
                 background: active ? "rgba(109,40,217,0.22)" : "transparent",

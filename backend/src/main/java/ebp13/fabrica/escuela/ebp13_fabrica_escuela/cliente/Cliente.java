@@ -30,6 +30,7 @@ public class Cliente {
     private String segundoApellido;
     private LocalDate fechaNacimiento;
     private String genero;
+    @Column(unique = true)
     private String email;
     private String telefono;
     private String direccion;
