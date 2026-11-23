@@ -4,10 +4,14 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaDuplicadaException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaInvalidaException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.Usuario;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.UsuarioRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.security.UserRole;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.ResourceNotFoundException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.ResourceConflictException;
 import java.security.SecureRandom;
 import java.util.List;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,9 +23,16 @@ public class ClienteService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ClienteRepository clienteRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public ClienteService(ClienteRepository clienteRepository) {
+    public ClienteService(
+            ClienteRepository clienteRepository,
+            UsuarioRepository usuarioRepository,
+            PasswordEncoder passwordEncoder) {
         this.clienteRepository = clienteRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
@@ -34,6 +45,12 @@ public class ClienteService {
         }
         if (request.getEmail() != null && clienteRepository.existsByEmail(request.getEmail())) {
             throw new ResourceConflictException("EMAIL_DUPLICADO", "El correo electrónico ya está registrado");
+        }
+        String username = request.getCedula().trim();
+        if (usuarioRepository.existsByUsernameIgnoreCase(username)) {
+            throw new ResourceConflictException(
+                    "USUARIO_DUPLICADO",
+                    "La cédula ya está asociada a un usuario");
         }
 
         Cliente cliente = new Cliente();
@@ -53,7 +70,15 @@ public class ClienteService {
         cliente.setDepartamento(request.getDepartamento());
         cliente.setActivo(true);
 
-        return toResponse(clienteRepository.save(cliente));
+        Cliente savedClient = clienteRepository.save(cliente);
+        Usuario user = new Usuario();
+        user.setUsername(username);
+        user.setPasswordHash(passwordEncoder.encode(savedClient.getIdCliente()));
+        user.setRole(UserRole.CLIENTE);
+        user.setCliente(savedClient);
+        usuarioRepository.save(user);
+
+        return toResponse(savedClient);
     }
 
     @Transactional(readOnly = true)

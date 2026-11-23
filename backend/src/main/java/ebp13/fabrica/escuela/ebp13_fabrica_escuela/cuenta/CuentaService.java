@@ -99,7 +99,8 @@ public class CuentaService {
     @Transactional(readOnly = true)
     public List<CuentaResponse> listarPorCliente(Long clienteId) {
         return cuentaRepository.findByCliente_Id(clienteId).stream()
-                .map(this::toResponse).toList();
+                .map(this::toResponse)
+                .toList();
     }
 
     private String generarNumeroCuenta(TipoCuenta tipo) {
